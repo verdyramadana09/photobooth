@@ -1,94 +1,160 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:gal/gal.dart'; // Import package baru
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
+import 'package:gal/gal.dart';
+
 import '../model/template_model.dart';
 import '../services/image_service.dart';
 
 class ResultScreen extends StatefulWidget {
   final List<XFile> images;
   final FrameTemplate template;
-  const ResultScreen({super.key, required this.images, required this.template});
+  final List<double> filterMatrix;
+  final List<Widget> stickers;
+
+  const ResultScreen({
+    super.key,
+    required this.images,
+    required this.template,
+    required this.filterMatrix,
+    required this.stickers,
+  });
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
 }
 
 class _ResultScreenState extends State<ResultScreen> {
-  Uint8List? finalImage;
-  bool isSaving = false;
+  Uint8List? _finalBytes;
 
   @override
   void initState() {
     super.initState();
-    _processImage();
+    _generateFinal();
   }
 
-  // Menggabungkan foto-foto menjadi satu gambar strip
-  Future<void> _processImage() async {
-    try {
-      final img = await generateImage(widget.images, widget.template);
-      if (mounted) setState(() => finalImage = img);
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal memproses gambar: $e")));
+  /// ================= GENERATE FINAL =================
+  Future<void> _generateFinal() async {
+    final bytes = await generateImage(widget.images, widget.template);
+    if (mounted) {
+      setState(() => _finalBytes = bytes);
     }
   }
 
-  // Menyimpan gambar ke galeri HP menggunakan package 'gal'
-  Future<void> _saveToGallery() async {
-    if (finalImage == null) return;
-    
-    setState(() => isSaving = true);
-    try {
-      // Gal otomatis akan meminta izin penyimpanan jika belum diberikan
-      await Gal.putImageBytes(finalImage!);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✨ Foto berhasil disimpan ke Galeri!")));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal menyimpan: $e")));
-      }
-    } finally {
-      if (mounted) setState(() => isSaving = false);
+  /// ================= DOWNLOAD =================
+  Future<void> _download() async {
+    if (_finalBytes == null) return;
+    await Gal.putImageBytes(_finalBytes!);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Downloaded")),
+      );
     }
+  }
+
+  /// ================= GIF =================
+  Future<void> _downloadGif() async {
+    final encoder = img.GifEncoder();
+
+    for (var file in widget.images) {
+      final bytes = await file.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) continue;
+      encoder.addFrame(img.copyResize(decoded, width: 480), duration: 50);
+    }
+
+    final gifBytes = encoder.finish();
+    if (gifBytes == null) return;
+
+    final dir  = await getTemporaryDirectory();
+    final path = '${dir.path}/gif_${DateTime.now().millisecondsSinceEpoch}.gif';
+    await File(path).writeAsBytes(gifBytes);
+    await Gal.putImage(path);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("GIF Downloaded")),
+      );
+    }
+  }
+
+  /// ================= PRINT =================
+  void _print() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Print (coming soon)")),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Hasil Photobooth")),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: finalImage == null
-                  ? const CircularProgressIndicator()
-                  : Image.memory(finalImage!), // Menampilkan foto yang sudah digabung
+      backgroundColor: const Color(0xffeeeeee),
+      body: SafeArea(
+        child: Column(
+          children: [
+
+            /// HEADER
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text("Photobooth",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(
-                  onPressed: () => Navigator.popUntil(context, (route) => route.isFirst),
-                  child: const Text("KEMBALI KE AWAL"),
+
+            /// RESULT IMAGE
+            Expanded(
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: _finalBytes == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: Image.memory(
+                            _finalBytes!,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
                 ),
-                const SizedBox(width: 20),
-                ElevatedButton.icon(
-                  onPressed: isSaving ? null : _saveToGallery,
-                  icon: isSaving 
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.save_alt),
-                  label: Text(isSaving ? "MENYIMPAN..." : "SIMPAN FOTO"),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+
+            /// BUTTONS
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _btn("Print", _print),
+                  const SizedBox(width: 16),
+                  _btn("Download Gif", _downloadGif),
+                  const SizedBox(width: 16),
+                  _btn("Download", _download),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _btn(String text, VoidCallback onTap) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.black,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      ),
+      onPressed: onTap,
+      child: Text(text),
     );
   }
 }

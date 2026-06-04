@@ -15,13 +15,18 @@ dependencies:
   image_picker: ^1.0.7
   path_provider: ^2.1.2
   qr_flutter: ^4.1.0
-  gal: any # INI PENGGANTI IMAGE_GALLERY_SAVER
   permission_handler: ^11.3.0
   http: ^1.6.0
+  image: ^4.8.0
+  google_fonts: ^8.0.2
+
+  # ✅ gunakan ini saja
+  gal: ^2.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^3.0.1
 
 flutter:
   uses-material-design: true

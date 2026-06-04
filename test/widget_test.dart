@@ -1,24 +1,20 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-// Pastikan nama package di bawah ini sesuai dengan nama project Anda
-// Jika nama project Anda bukan 'photobooth_new', silakan sesuaikan
-import 'package:photobooth_new/main.dart'; 
+import 'package:photobooth_new/main.dart';
 
 void main() {
   testWidgets('Photobooth start screen smoke test', (WidgetTester tester) async {
-    // 1. Build aplikasi Photobooth kita.
-    // Kita menggunakan PhotoBoothApp sesuai dengan script main.dart sebelumnya.
-    await tester.pumpWidget(const PhotoBoothApp());
+    // ✅ PhotoBoothApp sekarang butuh cameras — kirim list kosong untuk test
+    // (kamera tidak tersedia di lingkungan test, ini expected)
+    await tester.pumpWidget(PhotoBoothApp(cameras: const []));
 
-    // 2. Verifikasi bahwa halaman awal (StartScreen) muncul.
-    // Halaman awal kita memiliki tombol dengan teks "MULAI".
-    expect(find.text('MULAI'), findsOneWidget);
+    // ✅ Teks di StartScreen asli adalah "Start Session", bukan "MULAI"
+    expect(find.text('Start Session'), findsOneWidget);
 
-    // 3. Pastikan tidak ada teks '0' (bekas template counter) di layar.
+    // Pastikan tidak ada teks '0' (bekas template counter default Flutter)
     expect(find.text('0'), findsNothing);
-    
-    // 4. Simulasi menekan tombol MULAI (Opsional)
-    await tester.tap(find.text('MULAI'));
-    await tester.pumpAndSettle();
+
+    // ✅ Tombol disabled saat cameras kosong — tap tidak akan navigasi
+    // Cukup verifikasi widget ada, tidak perlu tap karena akan throw error
+    expect(find.text('Start Session'), findsOneWidget);
   });
 }

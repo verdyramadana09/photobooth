@@ -1,98 +1,201 @@
 import 'dart:io';
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
+
 import '../model/template_model.dart';
 import '../services/camera_service.dart';
-import '../../main.dart';
-import 'result_screen.dart';
+import '../services/image_service.dart';
+import 'preview_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   final FrameTemplate template;
-  const CameraScreen({super.key, required this.template});
+  // ✅ Terima cameras via constructor — tidak pakai global var lagi
+  final List<CameraDescription> cameras;
+  const CameraScreen({super.key, required this.template, required this.cameras});
+
   @override
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
 class _CameraScreenState extends State<CameraScreen> {
   int countdown = 0;
-  List<XFile?> capturedImages = [];
+  bool isFlashing = false;
+
+  /// REVIEW MODE
   bool isReviewMode = false;
-  Timer? _reviewTimer;
-  int _secondsRemaining = 30; // Timer 30 detik sesuai permintaan
+  int reviewSeconds = 30;
+  Timer? reviewTimer;
+
+  ui.Image? frameImage;
+  List<Rect> holes = [];       // ✅ simpan holes di sini, diteruskan ke PreviewScreen
+  List<List<Rect>> columns = [];
+
+  List<XFile?> capturedImages = [];
+
+  // ✅ Guard agar tombol tidak bisa ditekan ganda
+  bool _isTaking = false;
 
   @override
   void initState() {
     super.initState();
-    capturedImages = List.filled(widget.template.requiredPhotos, null);
-    CameraService.init(cameras).then((_) {
+    _loadFrame();
+
+    CameraService.init(widget.cameras).then((_) {
       if (mounted) setState(() {});
     });
   }
 
   @override
   void dispose() {
-    _reviewTimer?.cancel();
+    reviewTimer?.cancel();
     super.dispose();
   }
 
-  // --- LOGIKA TIMER 30 DETIK ---
+  /// ================= LOAD FRAME =================
+  Future<void> _loadFrame() async {
+    Uint8List bytes;
+
+    if (widget.template.type == 'asset') {
+      final data = await rootBundle.load(widget.template.path);
+      bytes = data.buffer.asUint8List();
+    } else {
+      bytes = await File(widget.template.path).readAsBytes();
+    }
+
+    final codec = await ui.instantiateImageCodec(bytes);
+    final img = (await codec.getNextFrame()).image;
+
+    // ✅ detectFrameHoles hanya dipanggil SEKALI di sini
+    final detected = await detectFrameHoles(img);
+    final grouped = _groupColumns(detected);
+
+    setState(() {
+      frameImage = img;
+      holes = detected;
+      columns = grouped;
+      capturedImages = List.filled(detected.length, null);
+    });
+  }
+
+  /// ================= GROUP =================
+  List<List<Rect>> _groupColumns(List<Rect> holes) {
+    List<List<Rect>> cols = [];
+
+    for (var h in holes) {
+      bool placed = false;
+
+      for (var c in cols) {
+        if ((c.first.left - h.left).abs() < 80) {
+          c.add(h);
+          placed = true;
+          break;
+        }
+      }
+
+      if (!placed) cols.add([h]);
+    }
+
+    for (var c in cols) {
+      c.sort((a, b) => a.top.compareTo(b.top));
+    }
+
+    cols.sort((a, b) => a.first.left.compareTo(b.first.left));
+
+    return cols;
+  }
+
+  /// ================= TAKE PHOTO =================
+  Future<void> _takePhoto(int index) async {
+    for (int i = 3; i > 0; i--) {
+      setState(() => countdown = i);
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    setState(() => countdown = 0);
+
+    setState(() => isFlashing = true);
+    await Future.delayed(const Duration(milliseconds: 120));
+    setState(() => isFlashing = false);
+
+    final img = await CameraService.controller!.takePicture();
+
+    setState(() {
+      capturedImages[index] = img;
+    });
+  }
+
+  // ✅ Guard double-tap: _isTaking mencegah _takeAll dipanggil dua kali
+  Future<void> _takeAll() async {
+    if (_isTaking) return;
+    setState(() => _isTaking = true);
+
+    for (int i = 0; i < capturedImages.length; i++) {
+      await _takePhoto(i);
+    }
+
+    _startReviewTimer();
+    setState(() => _isTaking = false);
+  }
+
+  /// ================= TIMER =================
   void _startReviewTimer() {
     setState(() {
       isReviewMode = true;
-      _secondsRemaining = 30;
+      reviewSeconds = 30;
     });
-    _reviewTimer?.cancel();
-    _reviewTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_secondsRemaining > 0) {
-        if (mounted) setState(() => _secondsRemaining--);
+
+    reviewTimer?.cancel();
+
+    reviewTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (reviewSeconds > 0) {
+        setState(() => reviewSeconds--);
       } else {
-        _finishSession(); // Otomatis lanjut jika waktu habis
+        _next();
       }
     });
   }
 
-  // --- LOGIKA AMBIL FOTO (SINGLE / SEQUENCE) ---
-  Future<void> _takePhoto(int index) async {
-    for (int c = 3; c > 0; c--) {
-      if (mounted) setState(() => countdown = c);
-      await Future.delayed(const Duration(seconds: 1));
-    }
-    if (mounted) setState(() => countdown = 0);
+  /// ================= RETAKE =================
+  void _retake(int index) async {
+    if (!isReviewMode) return;
+    if (_isTaking) return;   // ✅ juga guard saat retake
 
-    try {
-      final img = await CameraService.controller!.takePicture();
-      setState(() => capturedImages[index] = img);
-    } catch (e) {
-      debugPrint("Error taking picture: $e");
-    }
+    setState(() => _isTaking = true);
+    await _takePhoto(index);
+    setState(() => _isTaking = false);
   }
 
-  Future<void> _startSequence() async {
-    for (int i = 0; i < widget.template.requiredPhotos; i++) {
-      await _takePhoto(i);
-    }
-    _startReviewTimer();
-  }
+  void _next() {
+    reviewTimer?.cancel();
 
-  void _finishSession() {
-    _reviewTimer?.cancel();
-    List<XFile> finalImages = capturedImages.whereType<XFile>().toList();
-    if (finalImages.length == widget.template.requiredPhotos) {
+    final imgs = capturedImages.whereType<XFile>().toList();
+
+    if (imgs.length == capturedImages.length) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ResultScreen(images: finalImages, template: widget.template),
+          builder: (_) => PreviewScreen(
+            images: imgs,
+            template: widget.template,
+            // ✅ Teruskan holes yang sudah dideteksi — tidak perlu deteksi ulang
+            preloadedHoles: holes,
+            frameImage: frameImage,
+          ),
         ),
       );
     }
   }
 
-  Widget _previewWidget(XFile? file) {
+  Widget _img(XFile? file) {
     if (file == null) {
-      return const Icon(Icons.camera_alt, color: Colors.white, size: 30);
+      return const Icon(Icons.camera_alt, color: Colors.black, size: 28);
     }
+
     return kIsWeb
         ? Image.network(file.path, fit: BoxFit.cover)
         : Image.file(File(file.path), fit: BoxFit.cover);
@@ -100,146 +203,150 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (CameraService.controller == null || !CameraService.controller!.value.isInitialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    final controller = CameraService.controller;
+
+    if (controller == null || !controller.value.isInitialized) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
-    const Color bgPurple = Color(0xFFE5B6F2);
-    const Color darkPurple = Color(0xFF7B4D8E);
-
     return Scaffold(
-      backgroundColor: bgPurple,
+      backgroundColor: const Color(0xffeeeeee),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+
+              /// HEADER
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("AMBIL GAMBAR",
-                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Text("Photobooth",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+
                   if (isReviewMode)
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
-                      child: Text("Sisa Waktu: $_secondsRemaining",
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
+                    Text("$reviewSeconds s",
+                        style: const TextStyle(color: Colors.red)),
                 ],
               ),
-              const SizedBox(height: 20),
+
+              const SizedBox(height: 16),
+
               Expanded(
                 child: Row(
                   children: [
-                    // --- KAMERA (KIRI) ---
+
+                    /// CAMERA
                     Expanded(
-                      flex: 2,
+                      flex: 3,
                       child: Column(
                         children: [
                           Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(color: darkPurple, borderRadius: BorderRadius.circular(25)),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(25),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    FittedBox(
-                                      fit: BoxFit.contain,
-                                      child: SizedBox(
-                                        width: CameraService.controller!.value.previewSize!.height,
-                                        height: CameraService.controller!.value.previewSize!.width,
-                                        child: CameraPreview(CameraService.controller!),
-                                      ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+
+                                  /// MIRROR
+                                  Transform(
+                                    alignment: Alignment.center,
+                                    transform:
+                                        Matrix4.rotationY(3.1416),
+                                    child: CameraPreview(controller),
+                                  ),
+
+                                  if (countdown > 0)
+                                    Center(
+                                      child: Text("$countdown",
+                                          style: const TextStyle(
+                                              fontSize: 80,
+                                              color: Colors.white)),
                                     ),
-                                    if (countdown > 0)
-                                      Center(
-                                          child: Text("$countdown",
-                                              style: const TextStyle(
-                                                  fontSize: 120, color: Colors.white, fontWeight: FontWeight.bold))),
-                                  ],
-                                ),
+
+                                  if (isFlashing)
+                                    Container(
+                                        color: Colors.white.withValues(alpha: 0.8)),
+                                ],
                               ),
                             ),
                           ),
+
                           const SizedBox(height: 20),
-                          if (!isReviewMode)
-                            SizedBox(
-                              width: 250,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                    backgroundColor: darkPurple,
-                                    shape: const StadiumBorder(),
-                                    padding: const EdgeInsets.symmetric(vertical: 12)),
-                                onPressed: _startSequence,
-                                child: const Text("Mulai Ambil Foto", style: TextStyle(color: Colors.white, fontSize: 18)),
-                              ),
-                            )
-                          else
-                            const Text("Klik foto di samping untuk ambil ulang (Retake)",
-                                style: TextStyle(color: darkPurple, fontWeight: FontWeight.w600)),
+
+                          // ✅ Tombol disabled saat sedang mengambil foto
+                          ElevatedButton(
+                            onPressed: _isTaking ? null : _takeAll,
+                            child: _isTaking
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text("ambil gambar"),
+                          ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 20),
-                    // --- PREVIEW GRID & RETAKE (KANAN) ---
+
+                    const SizedBox(width: 16),
+
+                    /// PREVIEW
                     Expanded(
-                      flex: 1,
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: GridView.builder(
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10),
-                              itemCount: widget.template.requiredPhotos,
-                              itemBuilder: (context, index) => GestureDetector(
-                                onTap: isReviewMode ? () => _takePhoto(index) : null,
-                                child: Stack(
-                                  children: [
-                                    Container(
-                                      width: double.infinity,
-                                      height: double.infinity,
-                                      decoration: BoxDecoration(color: darkPurple, borderRadius: BorderRadius.circular(15)),
-                                      child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(15),
-                                          child: _previewWidget(capturedImages[index])),
-                                    ),
-                                    if (isReviewMode)
-                                      Positioned(
-                                        bottom: 5,
-                                        right: 5,
-                                        child: CircleAvatar(
-                                          radius: 12,
-                                          backgroundColor: Colors.white.withOpacity(0.8),
-                                          child: const Icon(Icons.refresh, size: 15, color: darkPurple),
-                                        ),
+                      flex: 2,
+                      child: frameImage == null
+                          ? const Center(child: CircularProgressIndicator())
+                          : LayoutBuilder(
+                              builder: (context, c) {
+
+                                int index = 0;
+
+                                return Row(
+                                  children: columns.map((col) {
+                                    return Expanded(
+                                      child: Column(
+                                        children: col.map((_) {
+
+                                          final i = index++;
+
+                                          return Expanded(
+                                            child: GestureDetector(
+                                              onTap: () => _retake(i),
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.all(6),
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  child: _img(
+                                                      capturedImages[i]),
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }).toList(),
                                       ),
-                                  ],
-                                ),
-                              ),
+                                    );
+                                  }).toList(),
+                                );
+                              },
                             ),
-                          ),
-                          const SizedBox(height: 20),
-                          if (isReviewMode)
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                    backgroundColor: darkPurple,
-                                    shape: const StadiumBorder(),
-                                    padding: const EdgeInsets.symmetric(vertical: 15)),
-                                onPressed: _finishSession,
-                                child: const Text("LANJUTKAN", style: TextStyle(color: Colors.white, fontSize: 18)),
-                              ),
-                            ),
-                        ],
-                      ),
                     ),
                   ],
                 ),
               ),
+
+              const SizedBox(height: 10),
+
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: _next,
+                  child: const Text("lanjutkan"),
+                ),
+              )
             ],
           ),
         ),
