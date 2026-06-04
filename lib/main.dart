@@ -2,25 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'screens/start_screen.dart';
 
-// ✅ Tidak lagi global mutable variable yang bisa diakses sebelum diisi.
-// Disimpan sebagai final setelah init selesai, diteruskan via constructor.
 List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    cameras = await availableCameras();
+    // ✅ Timeout 5 detik — di web availableCameras() kadang hang selamanya
+    cameras = await availableCameras().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => [],
+    );
   } catch (e) {
     debugPrint("Kamera tidak tersedia: $e");
-    // cameras tetap [] — StartScreen akan handle kondisi ini
   }
 
   runApp(PhotoBoothApp(cameras: cameras));
 }
 
 class PhotoBoothApp extends StatelessWidget {
-  // ✅ Terima cameras via constructor — tidak bergantung global var
   final List<CameraDescription> cameras;
   const PhotoBoothApp({super.key, required this.cameras});
 
@@ -30,15 +30,10 @@ class PhotoBoothApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Photobooth',
 
-      // ─────────────────────────────────────────────
-      // THEME
-      // ─────────────────────────────────────────────
       theme: ThemeData(
         useMaterial3: true,
-
         scaffoldBackgroundColor: const Color(0xFFF5F5F7),
 
-        // ✅ ColorScheme manual — lebih predictable daripada fromSeed(black)
         colorScheme: const ColorScheme(
           brightness: Brightness.light,
           primary: Colors.black,
@@ -90,7 +85,6 @@ class PhotoBoothApp extends StatelessWidget {
           ),
         ),
 
-        // Flutter 3.22+: cardTheme bertipe CardThemeData
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 6,
@@ -101,12 +95,8 @@ class PhotoBoothApp extends StatelessWidget {
         ),
       ),
 
-      // ─────────────────────────────────────────────
-      // ROUTING
-      // ─────────────────────────────────────────────
       home: StartScreen(cameras: cameras),
 
-      // ✅ Fallback jika ada route tidak dikenal — cegah crash navigator
       onUnknownRoute: (settings) => MaterialPageRoute(
         builder: (_) => const _NotFoundScreen(),
       ),
@@ -114,9 +104,6 @@ class PhotoBoothApp extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// FALLBACK SCREEN — route tidak ditemukan
-// ─────────────────────────────────────────────
 class _NotFoundScreen extends StatelessWidget {
   const _NotFoundScreen();
 
