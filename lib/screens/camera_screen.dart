@@ -14,9 +14,8 @@ import 'preview_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   final FrameTemplate template;
-  // ✅ Terima cameras via constructor — tidak pakai global var lagi
-  final List<CameraDescription> cameras;
-  const CameraScreen({super.key, required this.template, required this.cameras});
+  // ✅ Tidak perlu cameras dari luar — request sendiri saat layar dibuka
+  const CameraScreen({super.key, required this.template});
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -55,7 +54,14 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _initCamera() async {
     try {
-      await CameraService.init(widget.cameras);
+      // ✅ Request availableCameras() di sini — bukan di main()
+      // Ini memastikan browser hanya minta izin saat user memang
+      // masuk ke halaman kamera, bukan saat app pertama dibuka.
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        throw Exception('Tidak ada kamera yang ditemukan di perangkat ini.');
+      }
+      await CameraService.init(cameras);
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {

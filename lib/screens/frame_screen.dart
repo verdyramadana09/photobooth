@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../model/template_model.dart';
@@ -7,9 +6,8 @@ import 'camera_screen.dart';
 
 class FrameScreen extends StatefulWidget {
   final List<FrameTemplate> userTemplates;
-  // ✅ Terima cameras dari StartScreen
-  final List<CameraDescription> cameras;
-  const FrameScreen({super.key, required this.userTemplates, required this.cameras});
+  // ✅ Tidak perlu cameras — CameraScreen request sendiri saat dibuka
+  const FrameScreen({super.key, required this.userTemplates});
 
   @override
   State<FrameScreen> createState() => _FrameScreenState();
@@ -218,7 +216,7 @@ class _FrameScreenState extends State<FrameScreen> {
                           context,
                           MaterialPageRoute(
                             builder: (_) =>
-                                CameraScreen(template: selectedFrame!, cameras: widget.cameras),
+                                CameraScreen(template: selectedFrame!),
                           ),
                         );
                       },

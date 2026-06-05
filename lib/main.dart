@@ -1,28 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
 import 'screens/start_screen.dart';
-
-List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  try {
-    // ✅ Timeout 5 detik — di web availableCameras() kadang hang selamanya
-    cameras = await availableCameras().timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => [],
-    );
-  } catch (e) {
-    debugPrint("Kamera tidak tersedia: $e");
-  }
-
-  runApp(PhotoBoothApp(cameras: cameras));
+  // ✅ Tidak minta kamera di sini sama sekali.
+  // availableCameras() di main() memicu browser minta izin terlalu awal
+  // dan menyebabkan conflict saat CameraScreen minta akses lagi.
+  // Kamera akan di-request saat user masuk CameraScreen.
+  runApp(const PhotoBoothApp());
 }
 
 class PhotoBoothApp extends StatelessWidget {
-  final List<CameraDescription> cameras;
-  const PhotoBoothApp({super.key, required this.cameras});
+  const PhotoBoothApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +84,8 @@ class PhotoBoothApp extends StatelessWidget {
         ),
       ),
 
-      home: StartScreen(cameras: cameras),
+      // ✅ StartScreen tidak perlu cameras lagi
+      home: const StartScreen(),
 
       onUnknownRoute: (settings) => MaterialPageRoute(
         builder: (_) => const _NotFoundScreen(),
