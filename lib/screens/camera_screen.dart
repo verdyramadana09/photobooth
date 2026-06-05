@@ -37,17 +37,44 @@ class _CameraScreenState extends State<CameraScreen> {
 
   List<XFile?> capturedImages = [];
 
-  // ✅ Guard agar tombol tidak bisa ditekan ganda
+  // Guard agar tombol tidak bisa ditekan ganda
   bool _isTaking = false;
+
+  // Toggle flip/mirror preview kamera
+  bool _isMirrored = true;
+
+  // Simpan pesan error kamera — null berarti tidak ada error
+  String? _cameraError;
 
   @override
   void initState() {
     super.initState();
     _loadFrame();
+    _initCamera();
+  }
 
-    CameraService.init(widget.cameras).then((_) {
+  Future<void> _initCamera() async {
+    try {
+      await CameraService.init(widget.cameras);
       if (mounted) setState(() {});
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _cameraError = _friendlyError(e.toString()));
+      }
+    }
+  }
+
+  String _friendlyError(String raw) {
+    if (raw.contains('cameraNotReadable') || raw.contains('hardware')) {
+      return 'Kamera tidak bisa diakses.\n\nKemungkinan kamera sedang dipakai aplikasi lain (Zoom, Teams, dll).\n\nTutup aplikasi tersebut lalu refresh halaman ini.';
+    }
+    if (raw.contains('Permission') || raw.contains('denied') || raw.contains('NotAllowed')) {
+      return 'Izin kamera ditolak.\n\nKlik ikon kunci di address bar browser dan izinkan kamera, lalu refresh halaman.';
+    }
+    if (raw.contains('NotFound') || raw.contains('DevicesNotFound')) {
+      return 'Kamera tidak ditemukan.\n\nPastikan perangkat memiliki kamera yang terhubung.';
+    }
+    return 'Kamera tidak tersedia. Refresh halaman dan izinkan akses kamera.\n\nDetail: $raw';
   }
 
   @override
@@ -205,6 +232,45 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget build(BuildContext context) {
     final controller = CameraService.controller;
 
+    // Tampilkan error yang jelas jika kamera gagal
+    if (_cameraError != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xffeeeeee),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.videocam_off_rounded, size: 64, color: Colors.black38),
+                const SizedBox(height: 24),
+                Text(
+                  _cameraError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 15, height: 1.6, color: Colors.black87),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Coba Lagi'),
+                  onPressed: () {
+                    setState(() => _cameraError = null);
+                    _initCamera();
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Kembali'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Masih loading (belum init, belum error)
     if (controller == null || !controller.value.isInitialized) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -226,9 +292,49 @@ class _CameraScreenState extends State<CameraScreen> {
                   const Text("Photobooth",
                       style: TextStyle(fontWeight: FontWeight.bold)),
 
-                  if (isReviewMode)
-                    Text("$reviewSeconds s",
-                        style: const TextStyle(color: Colors.red)),
+                  Row(
+                    children: [
+                      if (isReviewMode)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text("$reviewSeconds s",
+                              style: const TextStyle(color: Colors.red)),
+                        ),
+
+                      // Tombol toggle flip/mirror
+                      GestureDetector(
+                        onTap: () => setState(() => _isMirrored = !_isMirrored),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _isMirrored ? Colors.black : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.black26),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.flip,
+                                size: 16,
+                                color: _isMirrored ? Colors.white : Colors.black,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _isMirrored ? "Mirror ON" : "Mirror OFF",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _isMirrored ? Colors.white : Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
 
@@ -250,11 +356,12 @@ class _CameraScreenState extends State<CameraScreen> {
                                 fit: StackFit.expand,
                                 children: [
 
-                                  /// MIRROR
+                                  /// MIRROR — bisa di-toggle
                                   Transform(
                                     alignment: Alignment.center,
-                                    transform:
-                                        Matrix4.rotationY(3.1416),
+                                    transform: _isMirrored
+                                        ? Matrix4.rotationY(3.1416)
+                                        : Matrix4.identity(),
                                     child: CameraPreview(controller),
                                   ),
 
