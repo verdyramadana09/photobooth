@@ -45,11 +45,22 @@ class _CameraScreenState extends State<CameraScreen> {
   // Simpan pesan error kamera — null berarti tidak ada error
   String? _cameraError;
 
-  @override
+@override
   void initState() {
     super.initState();
-    _loadFrame();
-    _initCamera();
+    // Panggil fungsi berurutan, bukan bersamaan
+    _setupSequentially();
+  }
+
+  Future<void> _setupSequentially() async {
+    // 1. Nyalakan kamera terlebih dahulu sampai selesai
+    await _initCamera();
+    
+    // 2. Beri nafas pada browser sebentar untuk me-render UI kamera
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 3. Setelah kamera aman, baru jalankan komputasi frame yang berat
+    await _loadFrame();
   }
 
   Future<void> _initCamera() async {
