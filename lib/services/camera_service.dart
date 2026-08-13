@@ -30,6 +30,8 @@ controller = CameraController(
       selected,
       resolution,
       enableAudio: false,
+      // HAPUS baris imageFormatGroup di bawah ini:
+      // imageFormatGroup: ImageFormatGroup.jpeg, 
     );
 
     try {
