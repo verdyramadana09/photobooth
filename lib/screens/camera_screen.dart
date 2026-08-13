@@ -86,11 +86,10 @@ class _CameraScreenState extends State<CameraScreen> {
 @override
   void dispose() {
     reviewTimer?.cancel();
-    // Tambahkan baris ini untuk melepas (release) hardware kamera saat layar ditutup
-    CameraService.controller?.dispose(); 
+    // Gunakan fungsi dispose() bawaan dari CameraService agar nilainya di-set ke null
+    CameraService.dispose(); 
     super.dispose();
   }
-
   /// ================= LOAD FRAME =================
   Future<void> _loadFrame() async {
     Uint8List bytes;
