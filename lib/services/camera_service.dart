@@ -26,11 +26,10 @@ class CameraService {
     final resolution =
         kIsWeb ? ResolutionPreset.medium : ResolutionPreset.high;
 
-    controller = CameraController(
+controller = CameraController(
       selected,
       resolution,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
     );
 
     try {
