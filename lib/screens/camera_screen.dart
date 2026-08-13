@@ -91,14 +91,16 @@ class _CameraScreenState extends State<CameraScreen> {
     super.dispose();
   }
   /// ================= LOAD FRAME =================
-  Future<void> _loadFrame() async {
+Future<void> _loadFrame() async {
     Uint8List bytes;
 
     if (widget.template.type == 'asset') {
       final data = await rootBundle.load(widget.template.path);
       bytes = data.buffer.asUint8List();
     } else {
-      bytes = await File(widget.template.path).readAsBytes();
+      // ✅ Gunakan XFile agar aman di web (tidak crash seperti dart:io)
+      final xfile = XFile(widget.template.path);
+      bytes = await xfile.readAsBytes();
     }
 
     final codec = await ui.instantiateImageCodec(bytes);
