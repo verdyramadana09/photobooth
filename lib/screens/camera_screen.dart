@@ -83,9 +83,11 @@ class _CameraScreenState extends State<CameraScreen> {
     return 'Kamera tidak tersedia. Refresh halaman dan izinkan akses kamera.\n\nDetail: $raw';
   }
 
-  @override
+@override
   void dispose() {
     reviewTimer?.cancel();
+    // Tambahkan baris ini untuk melepas (release) hardware kamera saat layar ditutup
+    CameraService.controller?.dispose(); 
     super.dispose();
   }
 
